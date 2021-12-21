@@ -1,99 +1,83 @@
 ﻿#include <iostream>
-#include <ctime>
-#include <Windows.h>
+#include <windows.h>
+#include <fstream>
 #include <string>
 
-HANDLE CreateProcessNew(std::wstring exePath, std::wstring logName);
+HANDLE CreateNewProcess(const std::string& exePath, const std::string& logName) {
 
-int main() {
+	SECURITY_ATTRIBUTES securityAttributes = { sizeof(securityAttributes), nullptr, true };
 
-	const int pageCount = 12;
-	const int processCount = 14;
-	const int writerCount = processCount / 2;
-	const int readerCount = processCount / 2;
-	const int pageSize = 4096;
+	HANDLE logFileHandle = CreateFile(logName.c_str(), GENERIC_WRITE, FILE_SHARE_WRITE, &securityAttributes,
+		CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 
-	HANDLE hFile = CreateFile(L"D:\\lab4\\text.txt", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
-		OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	STARTUPINFO startupInfo;
+	PROCESS_INFORMATION processInformation;
 
-	if (hFile != INVALID_HANDLE_VALUE) {
+	ZeroMemory(&startupInfo, sizeof(startupInfo));
+	startupInfo.cb = sizeof(startupInfo);
+	startupInfo.dwFlags |= STARTF_USESTDHANDLES;
+	startupInfo.hStdOutput = logFileHandle;
+	startupInfo.hStdError = NULL;
+	startupInfo.hStdInput = NULL;
 
-		HANDLE hFileMapping = CreateFileMapping(hFile, NULL, PAGE_READWRITE, NULL, pageCount * pageSize, L"mappedFile");
+	ZeroMemory(&processInformation, sizeof(processInformation));
 
-		if (hFileMapping != INVALID_HANDLE_VALUE) {
-			HANDLE IOMutex = CreateMutex(NULL, false, L"IOMutex");
-			HANDLE readSemaphore[pageCount], writeSemaphore[pageCount];
-			HANDLE processHandles[processCount];
-			
-			for (int i = 0; i < pageCount; i++) {
-				std::wstring semaphoreName = L"readSemaphore_" + std::to_wstring(i);
-				readSemaphore[i] = CreateSemaphore(NULL, 0, 1, semaphoreName.data());
-				semaphoreName = L"writeSemaphore_" + std::to_wstring(i);
-				writeSemaphore[i] = CreateSemaphore(NULL, 1, 1, semaphoreName.data());
-				WaitForSingleObject(readSemaphore[i], INFINITE);
-			}
+	if(CreateProcess(exePath.c_str(), NULL, NULL, NULL, true, NULL, NULL, NULL, &startupInfo, &processInformation))
+		return processInformation.hProcess;
 
-			for (int i = 0; i < writerCount; i++) {
-				std::wstring logName = L"D:\\lab4\\writeLogs\\writeLog_" + std::to_wstring(i) + L".txt";
-
-				HANDLE handleProcess = CreateProcessNew(L"C:\\Users\\ZuniXX\\source\\repos\\lab4_OS_W\\Debug\\lab4_OS_W.exe",
-					logName);
-
-				processHandles[i] = handleProcess;
-			}
-
-			for (int i = 0; i < readerCount; i++) {
-				std::wstring logName = L"D:\\lab4\\readLogs\\readLog_" + std::to_wstring(i) + L".txt";
-
-				HANDLE handleProcess = CreateProcessNew(L"C:\\Users\\ZuniXX\\source\\repos\\lab4_OS_R\\Debug\\lab4_OS_R.exe",
-					logName);
-
-				processHandles[readerCount + i] = handleProcess;
-			}
-
-			WaitForMultipleObjects(processCount, processHandles, true, INFINITE);
-			std::cout << "Работа завершена" << std::endl;
-
-			for (int i = 0; i < pageCount; i++) {
-				CloseHandle(readSemaphore[i]);
-				CloseHandle(writeSemaphore[i]);
-			}
-
-			CloseHandle(IOMutex);
-			CloseHandle(hFileMapping);
-
-		}
-		else {
-			std::cout << "Ошибка проецирования файла, код: " << GetLastError() << std::endl;
-		}
-
-		CloseHandle(hFile);
-
-	}
-	else {
-		std::cout << "Ошибка создания файла, код: " << GetLastError() << std::endl;
-	}
-
-	return 0;
+	return nullptr;
 }
 
-HANDLE CreateProcessNew(std::wstring exePath, std::wstring logName) {
-	HANDLE handleLogFile = CreateFile(logName.data(), GENERIC_WRITE, FILE_SHARE_WRITE, NULL, OPEN_ALWAYS,
-		FILE_ATTRIBUTE_NORMAL, NULL);
+int main()
+{
+	std::cout << "ITS STARTING" << std::endl;
 
-	STARTUPINFO startupInformation;
-	ZeroMemory(&startupInformation, sizeof(STARTUPINFO));
-	startupInformation.cb = sizeof(STARTUPINFO);
-	startupInformation.hStdOutput = handleLogFile;
-	startupInformation.hStdError = NULL;
-	startupInformation.hStdInput = NULL;
-	startupInformation.dwFlags = STARTF_USESTDHANDLES;
+	const int pageSize = 4096;
+	const int pageCount = 12;
+	const int processCount = 14;
+	const int hProcessCount = processCount / 2;
 
-	PROCESS_INFORMATION processInformation;
-	ZeroMemory(&processInformation, sizeof(PROCESS_INFORMATION));
+	HANDLE writeSemaphores[pageCount];
+	HANDLE readSemaphores[pageCount];
+	HANDLE IOMutex = CreateMutex(NULL, false, "IOMutex");
+	HANDLE fileHandle = CreateFile("D:\\lab4\\text.txt", GENERIC_ALL, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	HANDLE mapFile = CreateFileMapping(fileHandle, NULL, PAGE_READWRITE, 0, pageSize * pageCount, "MAPPING");
+	HANDLE processHandles[processCount];
 
-	if (!CreateProcess(exePath.data(), NULL, NULL, NULL, FALSE, NULL, NULL, NULL, &startupInformation, &processInformation)) {
-		return nullptr;
+	for (int i = 0; i < pageCount; i++)
+	{
+		std::string semaphoreName = "writeSemaphore_" + std::to_string(i);
+		writeSemaphores[i] = CreateSemaphore(NULL, 1, 1, semaphoreName.c_str());
+		semaphoreName = "readSemaphore_" + std::to_string(i);
+		readSemaphores[i] = CreateSemaphore(NULL, 0, 1, semaphoreName.c_str());
 	}
-	return processInformation.hProcess;
+
+	for (int i = 0; i < hProcessCount; i++)
+	{
+		std::string logName = "D:\\lab4\\readLogs\\readLog_" + std::to_string(i) + ".txt";
+		processHandles[i] = CreateNewProcess("C:\\Users\\ZuniXX\\source\\repos\\lab4_OS_W\\Debug\\lab4_OS_W.exe",
+			logName);
+	}
+
+	for (int i = 0; i < hProcessCount; i++)
+	{
+		std::string logName = "D:\\lab4\\writeLogs\\writeLog_" + std::to_string(i) + ".txt";
+		processHandles[i + hProcessCount] = CreateNewProcess("C:\\Users\\ZuniXX\\source\\repos\\lab4_OS_R\\Debug\\lab4_OS_R.exe",
+			logName);
+	}
+
+	std::cout << "WAIT!" << std::endl;
+
+	WaitForMultipleObjects(processCount, processHandles, true, INFINITE);
+	std::cout << "ITS OVER" << std::endl;
+
+	CloseHandle(IOMutex);
+	CloseHandle(mapFile);
+	CloseHandle(fileHandle);
+	for (int i = 0; i < pageCount; i++)
+	{
+		CloseHandle(writeSemaphores[i]);
+		CloseHandle(readSemaphores[i]);
+	}
+	return 0;
 }
